@@ -191,7 +191,9 @@ int minSpeed = 100;
 
 // **Safe Distance Thresholds**
 const float minRightDistance = 6.0;  // If closer than this, must turn left
+const float minLeftDistance = 6.0;   // If closer than this, must turn right
 const float minFrontDistance = 15.0; // If closer than this, stop or reverse
+const float deadEndThreshold = 5.0;  // Threshold to detect if it's completely surrounded
 
 // **PID Function for Steering Correction**
 int PIDControl(float error) {
@@ -208,7 +210,7 @@ void loop() {
   float distanceRight = measureDistance("rechts");
 
   // **Calculate PID Error for Steering (Right Preference)**
-  float error = (distanceRight - distanceLeft) + 5;  // Encourages right turns
+  float error = (distanceRight - distanceLeft) + 2;  // Encourages right turns
   int correction = PIDControl(error);
 
   // **Calculate Wheel Speeds**
@@ -219,58 +221,61 @@ void loop() {
   speedLeft = constrain(speedLeft, minSpeed, maxSpeed);
   speedRight = constrain(speedRight, minSpeed, maxSpeed);
 
-  // **Wall Avoidance Priority**
-  if (distanceRight < minRightDistance) {
-    // **Too close to right wall! Strong left correction**
-    speedLeft = 100;
-    speedRight = maxSpeed;
-  } 
-  if (distanceFront < minFrontDistance)
-  {
-    speedLeft = -255;
-    speedRight = -255;
-  }
-
-  // **Main Steering & Obstacle Avoidance**
-  else if (distanceFront > minFrontDistance) {
-    if (distanceRight > 11) {
-      speedLeft = maxSpeed;   // Turn right
-      speedRight = 100;
-    } 
-    else if (distanceRight < 7 && distanceLeft > 11) {
-      speedLeft = 100;
-      speedRight = maxSpeed;  // Turn left
-    } 
-    else {
-      speedLeft = 215;
-      speedRight = 255;  // Slight right bias
-    }
-  }
-  else if (distanceRight - distanceLeft > 7) {
-    speedLeft = 255;  
-    speedRight = 120;   // Turn right slightly
-  } 
-  else if (distanceLeft - distanceRight > 7 && distanceRight < 40) {
-    speedLeft = 50;  
-    speedRight = 255;  // Turn left slightly
-  } 
-  else if (distanceFront <= minFrontDistance && distanceLeft <= 15 && distanceRight <= 15) {
-    if (distanceLeft > distanceRight) {
-      drive(255, -255);  // Reverse and turn left
+  if (distanceFront <= minFrontDistance && distanceLeft <= 15 && distanceRight <= 15) {
+      drive(-255, 255);  // Reverse and turn left
+      delay(300);
+    if (distanceLeft > 12) {
+      drive(241, -254);  
     } else {
-      drive(-255, 255);  // Reverse and turn right
+      drive(-241, 254);  
     }
+    delay(1000);
+    drive(-255,-255);
     delay(400);
+  } else {
+      // **Wall Avoidance Priority**
+    if (distanceRight < minRightDistance) {
+      // **Too close to right wall! Strong left correction**
+      speedLeft = 100;
+      speedRight = maxSpeed;
+    } 
+    else if (distanceLeft < minLeftDistance) {
+      // **Too close to left wall! Strong right correction**
+      speedLeft = maxSpeed;
+      speedRight = 100;
+    }
+    // **Main Steering & Obstacle Avoidance**
+    else if (distanceFront > minFrontDistance) {
+      if (distanceRight > 11) {
+        speedLeft = maxSpeed;   // Turn right
+        speedRight = 100;
+      } 
+      else if (distanceRight < 7 && distanceLeft > 20) {
+        if (speedRight == maxSpeed)
+        {
+          delay(250);                                                               // pas aan om rechts sturen in linker bocht te voorkomen
+        }
+        speedLeft = 100;
+        speedRight = maxSpeed;  // Turn left
+      } 
+      else {
+        speedLeft = 215;
+        speedRight = 255;  // Slight right bias
+      }
+    } 
+    else if (distanceRight - distanceLeft > 7) {
+      speedLeft = 255;  
+      speedRight = 120;   // Turn right slightly
+    } 
+    else if (distanceLeft - distanceRight > 7 && distanceRight < 40) {
+      speedLeft = 50;  
+      speedRight = 255;  // Turn left slightly
+    }
 
-    drive(-255, 255);  
-    delay(500);
-
-    drive(-255, -255);
-    delay(100);
+    // **Drive Using PID Speeds**
+    drive(speedLeft, speedRight);
   }
-
-  // **Drive Using PID Speeds**
-  drive(speedLeft, speedRight);
+  
 
   // **Debugging Output**
   Serial.print("Front: ");
