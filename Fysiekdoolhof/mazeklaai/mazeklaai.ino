@@ -176,6 +176,33 @@ void printLightSensorValues() {
 int firstOptimisticCorner = 0;
 
 
+void checkAndReverse(float &prevDistanceFront) {
+    float distanceFront = measureDistance("voor");
+    static int countFront = 0;  // Teller behouden tussen function calls
+
+    // Controleer of de huidige afstand ongeveer gelijk is aan de vorige met een marge van ±2
+    if (abs(distanceFront - prevDistanceFront) <= 2 && distanceFront < 50) {
+        countFront++;
+
+        if (countFront >= 30) {
+            Serial.println("Obstacle detected or stuck: moving back slightly...");
+            drive(-255, -255);  // Rijdt een klein stukje achteruit
+            delay(300);         // Wacht even
+            drive(0, 0);
+            countFront = 0;  // Reset teller na achteruitrijden
+        }
+    } else {
+        countFront = 0;  // Reset teller als de afstand wél verandert
+    }
+
+    prevDistanceFront = distanceFront;  // Update vorige afstand
+}
+
+
+
+
+
+
 // **PID Gains (Tweak as needed)**
 float Kp = 6.0;  // Increase P gain for stronger reaction
 float Ki = 0.05; // Reduce I gain to avoid drifting
@@ -204,6 +231,8 @@ int PIDControl(float error) {
   return (Kp * error) + (Ki * integral) + (Kd * derivative);
 }
 
+float prevDistanceFront = 0;
+
 void loop() {
   float distanceFront = measureDistance("voor");
   float distanceLeft = measureDistance("links");
@@ -221,6 +250,8 @@ void loop() {
   speedLeft = constrain(speedLeft, minSpeed, maxSpeed);
   speedRight = constrain(speedRight, minSpeed, maxSpeed);
 
+  checkAndReverse(prevDistanceFront);
+
   if (distanceFront <= minFrontDistance && distanceLeft <= 15 && distanceRight <= 15) {
       drive(-255, 255);  // Reverse and turn left
       delay(300);
@@ -234,27 +265,23 @@ void loop() {
     delay(400);
   } else {
       // **Wall Avoidance Priority**
-    if (distanceRight < minRightDistance) {
+    if (distanceRight <= minRightDistance) {
       // **Too close to right wall! Strong left correction**
       speedLeft = 100;
       speedRight = maxSpeed;
     } 
-    else if (distanceLeft < minLeftDistance) {
+    else if (distanceLeft <= minLeftDistance) {
       // **Too close to left wall! Strong right correction**
       speedLeft = maxSpeed;
       speedRight = 100;
     }
     // **Main Steering & Obstacle Avoidance**
     else if (distanceFront > minFrontDistance) {
-      if (distanceRight > 11) {
-        speedLeft = maxSpeed;   // Turn right
+      if (distanceRight > 12) {
+        speedLeft = maxSpeed-20;   // Turn right
         speedRight = 100;
       } 
       else if (distanceRight < 7 && distanceLeft > 20) {
-        if (speedRight == maxSpeed)
-        {
-          delay(250);                                                               // pas aan om rechts sturen in linker bocht te voorkomen
-        }
         speedLeft = 100;
         speedRight = maxSpeed;  // Turn left
       } 
