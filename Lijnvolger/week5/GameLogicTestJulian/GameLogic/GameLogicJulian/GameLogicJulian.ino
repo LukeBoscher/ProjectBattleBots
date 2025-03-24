@@ -84,9 +84,9 @@ void setup() {
   calibrateSensors();
   Serial.println("Beweeg de robot over de lijn voor kalibratie...");
 
-  crossThreeLines();
+ // crossThreeLines();
 
-  findLineOnLeft();
+  //findLineOnLeft();
 }
 
 void loop() 

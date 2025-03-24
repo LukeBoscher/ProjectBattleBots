@@ -23,17 +23,17 @@ const int TRIG_PIN = 13;
 //green wire is echo 
 const int ECHO_PIN = 12; //ECHO_PIN
 
+const int START_BUTTON_PIN = 2;
+
 //trigger distance of obstacle in cm
 const int OBSTACLETHRESHOLD = 10;  
 
 const int TRANSMIT_PIN = 11; 
 
 const int SERVO_PIN = 3; 
-const int START_BUTTON_PIN = 2;
-
-
 
 // Range how the gripper open and closes. 360 degrees
+
 int OPENGRIP_VALUE = 120;
 int CLOSEGRIP_VALUE = 50;
 unsigned long currentMillis = 0;
@@ -41,16 +41,16 @@ unsigned long previousActionMillis = 0;
 unsigned long previousServoMillis = 0;
 const long SERVO_INTERVAL = 20; // 20 ms delay
 
-const long OPEN_TIME = 0;            // Open grip at start
-const long CLOSE_TIME = 1000;        // Close grip after 1s
-const long OPEN_AGAIN_TIME = 2000;    // Open grip again after 2s
-const long DRIVE_START_TIME = 3000;   // Start driving after 3s
-const long GRAB_TIME = 5000;         // Grab cone after 4s 
-const long HOLD_TIME = 7000;         // Stop and hold after 6s
-const long DROP_TIME = 9000;        // Drop after 8s
-const long DRIVE_AGAIN_TIME = 6000;  // Drive again after 5s
+// Timing Constants
+const long CLOSE_TIME = 1000;           // Close grip after 1s
+const long GRAB_TIME = 2000;            // Grab cone after 1s
+const long TURN_TIME = 4000;            // Turn left starts at 4s
+const long HOLD_TIME = 3000;            // Hold the cone in place for 3s
+const long FOLLOW_LINE_TIME = 5000;     // Follow the line for a while before dropping
+const long DROP_TIME = 10000;           // Drop cone after 10s (time since pickup start)
 
 const int MAX_SPEED = 240;
+const int SLOW_SPEED = 200;
 const int TURN_SPEED = 150;
 
 boolean isGripClosed = false;
@@ -92,25 +92,14 @@ void setup() {
   }
   calibrateSensors();
   Serial.println("Beweeg de robot over de lijn voor kalibratie...");
+  raceStart(); 
 
-  crossThreeLines();
-
-  findLineOnLeft();
 }
 
 void loop() 
 {
+  //followLine();
   pickUp();
-
-  followLine();
-
-  if(obstacleDetected())
-  {
-    dodge();
-  }
-
-
-
 }
 
 void followLine()
@@ -120,7 +109,7 @@ void followLine()
       findLine();
       return;
     }
-  
+
   int sensorReadings[NUM_SENSORS];
   bool BLACK_LINE_DETECTED = false;
 
@@ -266,75 +255,84 @@ void searchLine()
   findLine(); 
 }
 
-
-void crossThreeLines() {
+void raceStart() 
+{
   int linesCrossed = 0;
   bool onBlack = false;
+  bool onSquare = false;  // To track when the robot is on the black square
 
   Serial.println("Crossing three lines...");
-  while (linesCrossed < 2) {
+
+  while (linesCrossed < 3) { // Continue until 2 lines are crossed
     int blackSensors = 0;
     
+    // Check how many sensors detect black
     for (int i = 0; i < NUM_SENSORS; i++) {
-      if (analogRead(SENSOR_PINS[i]) < 500) { // Black detected
+      int sensorValue = analogRead(SENSOR_PINS[i]);
+      Serial.print("Sensor ");
+      Serial.print(i);
+      Serial.print(": ");
+      Serial.println(sensorValue); // Debug print to check sensor readings
+
+      if (sensorValue < 600) { // Adjusted threshold to detect black
         blackSensors++;
       }
+
     }
 
-    moveForward();
+    // Debug print to see how many sensors are detecting black
+    Serial.print("Black Sensors Detected: ");
+    Serial.println(blackSensors);
 
-    if (blackSensors > 3) 
-    { // More than 3 sensors see black
-      if (!onBlack) 
-      {
+    // Check if the robot is on a black line
+    if (blackSensors > 0) { // Any sensor detects black
+      if (!onBlack) { // Transition from white to black
+        linesCrossed++; // Count the line
         Serial.print("Line crossed: ");
         Serial.println(linesCrossed);
         onBlack = true;
-        delay(100); // Prevents false detections
+        delay(200); // Prevent false detections
       }
     } 
-    else 
+    else {
+      onBlack = false; // Reset when back on white
+      onSquare = false; // No longer on the black square
+    }
+
+    if (linesCrossed < 2) 
     {
-      onBlack = false;
+      slowMoveforward();
+      delay(100);
+
     }
 
-    drive(150, 150); // Move forward slowly
-  }
+    if(linesCrossed >= 3)
+    {
+      slowMoveforward();
+      delay(200);
+      if (analogRead(SENSOR_PINS[0]) < 500 || analogRead(SENSOR_PINS[1]) < 500 || analogRead(SENSOR_PINS[2]) < 500) 
+      {
+        stop();
+        delay(5000);
+        pickUp();
 
-  Serial.println("Three lines crossed.");
-  stop();
-  delay(100);
-}
 
 
-void findLineOnLeft() {
-  Serial.println("Searching for line on the left...");
-  pixels.setPixelColor(0, pixels.Color(255, 255, 0)); // Yellow light when searching
-  pixels.show();
-
-  bool foundLine = false;
-
-  for (int i = 0; i < 10; i++) 
-  {
-
-    for (int j = 0; j < NUM_SENSORS; j++) {
-      if (analogRead(SENSOR_PINS[j]) < 500) { // Found a line
-        foundLine = true;
-        Serial.println("Line found on left!");
-        LINE_FOUND = true;
-        turnLeft();
-        return;
-      } 
+        Serial.println("Robot is on the black square.");
+        Serial.println("Pick-up triggered after crossing the black square.");
+      }
+      else
+      {
+        slowMoveforward();
+        delay(100);
+      }
     }
-  }
 
-  if (!foundLine) {
-    Serial.println("No line found, adjusting...");
-    drive(-100, -100); // Move back slightly
-    delay(500);
-    findLineOnLeft();
+    // After the 2nd line is crossed, check if robot leaves the black square
+
   }
 }
+
 
 
 void stop() {
@@ -362,6 +360,14 @@ void moveForward() {
   analogWrite(MOTOR_A1, 0);  
   analogWrite(MOTOR_A2, MAX_SPEED);
   analogWrite(MOTOR_B1, MAX_SPEED);  
+  analogWrite(MOTOR_B2, 0);
+}
+
+void slowMoveforward() 
+{  
+  analogWrite(MOTOR_A1, 0);  
+  analogWrite(MOTOR_A2, SLOW_SPEED);
+  analogWrite(MOTOR_B1, SLOW_SPEED);  
   analogWrite(MOTOR_B2, 0);
 }
 
@@ -522,64 +528,59 @@ void generatePulse(int angle) {
 
 
 void pickUp() {
-    currentMillis = millis();
+    // Reset previousActionMillis to 0 or current time when the pickup starts
+    if (previousActionMillis == 0) {
+        previousActionMillis = millis(); // Set start time
+    }
+
+    currentMillis = millis(); // Current time for the pick-up process
+
     unsigned long elapsedTime = currentMillis - previousActionMillis;
-    
-    // Keep servo active
-    if(currentMillis - previousServoMillis >= SERVO_INTERVAL) 
-    {
-      previousServoMillis = currentMillis;
-      if(isGripClosed) 
-      {
-        generatePulse(CLOSEGRIP_VALUE);
-      } 
-      else 
-      {
-        generatePulse(OPENGRIP_VALUE);
-      }
+
+    Serial.print("Elapsed Time: ");
+    Serial.println(elapsedTime);
+
+    // Open the grip at the start
+    if (elapsedTime < CLOSE_TIME && isGripClosed) {
+        isGripClosed = false;
+        generatePulse(OPENGRIP_VALUE); // Open immediately
+        Serial.println("Open Gripper");
     }
-    
-    // Open the grip
-    if(elapsedTime >= OPEN_TIME && elapsedTime < CLOSE_TIME && isGripClosed) 
-    {
-      isGripClosed = false;
-    }
-    
-    
-    // Open it again after 1 more second
-    else if(elapsedTime >= OPEN_AGAIN_TIME && elapsedTime < DRIVE_START_TIME && isGripClosed) 
-    {
-      isGripClosed = false;
-    }
-    
-    // Drive forward to the cone
-    else if(elapsedTime >= DRIVE_START_TIME && elapsedTime < GRAB_TIME) 
-    {
-      moveForward();
-    }
-    
     // Grab the cone
-    else if(elapsedTime >= GRAB_TIME && elapsedTime < HOLD_TIME && !isGripClosed)
-     {
-      stop();
-      isGripClosed = true;
+    else if (elapsedTime >= GRAB_TIME && !isGripClosed) {
+        stop();
+        isGripClosed = true;
+        generatePulse(CLOSEGRIP_VALUE); // Close immediately
+        Serial.println("Closing Gripper");
+        previousActionMillis = millis(); // Reset timer after grabbing
     }
-    
-    // Drive forward again with the cone
-    else if(elapsedTime >= DRIVE_AGAIN_TIME && elapsedTime < HOLD_TIME)
-     {
-      moveForward();
+    // Turn left while holding the cone
+    else if (elapsedTime >= GRAB_TIME && elapsedTime < GRAB_TIME + TURN_TIME) {
+        turnLeft();
     }
-    
-    // Stop and hold the cone
-    else if(elapsedTime >= HOLD_TIME && elapsedTime < DROP_TIME) 
-    {
-      stop();
+    // Hold the cone in place for a few seconds after turning
+    else if (elapsedTime >= GRAB_TIME + TURN_TIME && elapsedTime < GRAB_TIME + TURN_TIME + HOLD_TIME) {
+        stop();
     }
-    
-    // Drop the cone after the specified time
-    else if (elapsedTime >= DROP_TIME) 
-    {
-      isGripClosed = false;
+    // Follow the line while holding the cone
+    else if (elapsedTime >= GRAB_TIME + TURN_TIME + HOLD_TIME && elapsedTime < GRAB_TIME + TURN_TIME + HOLD_TIME + FOLLOW_LINE_TIME) {
+        followLine();
     }
+    // Drop the cone after a certain period while still following the line
+    else if (elapsedTime >= GRAB_TIME + TURN_TIME + HOLD_TIME + FOLLOW_LINE_TIME && elapsedTime < GRAB_TIME + TURN_TIME + HOLD_TIME + FOLLOW_LINE_TIME + DROP_TIME) {
+        drop();  // Drop the cone while following the line
+    }
+    // Continue following the line after dropping the cone
+    else {
+        followLine();
+    }
+}
+
+
+
+void drop() {
+    // Release the grip to drop the cone
+    isGripClosed = false;
+    previousActionMillis = millis();  // Reset timer after dropping the cone
+    // Additional code for dropping the cone (e.g., servo or motor movement if needed)
 }
