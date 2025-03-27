@@ -34,7 +34,6 @@ const long SERVO_INTERVAL = 20; // 20ms delay for the servo
 boolean isGripClosed = false;
 
 const int MAX_SPEED = 255;
-const int MAX_REVERSE_SPEED = -255;
 
 const int OBSTACLE_THRESHOLD = 10; // Trigger distance of obstacle in cm
 const int END_OF_LINE_TIMEOUT = 400; // Time in ms to determine it's an end square or crossing a line 
@@ -49,11 +48,13 @@ int thresholdHigh = 0;
 bool calibrationComplete = false;
 unsigned long allBlackStartTime = 0;
 bool allBlackDetected = false;
+bool onBlackLine = false;
+int linesPast = 0;
 
 // Variables for the states
 enum robotState {
   PARKED,
-  CALIBRATE,
+  START,
   FOLLOWING_LINE,
   AVOIDING_OBSTACLE,
   END_OF_THE_LINE,
@@ -64,8 +65,7 @@ robotState currentState = PARKED;  // Start in PARKED state
 unsigned long stateStartTime = 0;
 int avoidanceStep = 0;
 int lastDirection = 0; // -1 (left), 1 (right), 0 (center)
-int calibrationStep = 0;
-int calibrationReadings = 0;
+int startStep = 0;
 bool buttonPressed = false;
 
 void setup() {
@@ -91,7 +91,6 @@ void setup() {
     maxValues[i] = 0;     // Start with lowest possible value
   }
 
-  Serial.println("Robot is parked. Press the button to start.");
   stop();
   
   // Set all LEDs to blue to indicate PARKED state
@@ -104,23 +103,8 @@ void setup() {
 void loop() {
   long distance = getDistance();
   
-  // Check for button press
-  if (digitalRead(START_BUTTON_PIN) == LOW && !buttonPressed) {
-    buttonPressed = true;
-    if (currentState == PARKED) {
-      currentState = CALIBRATE;
-      calibrationStep = 0;
-      calibrationReadings = 0;
-      stateStartTime = millis();
-      Serial.println("Starting calibration...");
-    }
-  }
-  
-  // Reset button state when released
-  if (digitalRead(START_BUTTON_PIN) == HIGH) {
-    buttonPressed = false;
-  }
-
+  buttonControl();
+  calibrate();
   gripperControl();
   
   switch (currentState) {
@@ -134,8 +118,8 @@ void loop() {
       pixels.show();
       break;
 
-    case CALIBRATE:
-      calibrate();
+    case START:
+      start();
       break;
 
     case FOLLOWING_LINE:
@@ -151,17 +135,17 @@ void loop() {
       }
       break;
       
+      
     case AVOIDING_OBSTACLE:
 
       avoidObstacle(distance);
       break;
-
+      
     case END_OF_THE_LINE:
       end();
       // return to PARKED state
       if (millis() - stateStartTime > 5000) {  // Wait for 5 seconds
-        currentState = PARKED;
-        Serial.println("Returning to PARKED state. Press button to restart.");
+        currentState = PARKED; // Return to parked state
       }
       break;
 
@@ -171,109 +155,104 @@ void loop() {
   }
 }
 
-// Function to calculate the threshold values used in calibration
-void calculateThresholds() {
-  int average = 0;
-  for (int j = 0; j < NUM_SENSORS; j++) {
-    average += (minValues[j] + maxValues[j]) / 2;
+void buttonControl() {
+  // Check for button press
+  if (digitalRead(START_BUTTON_PIN) == LOW && !buttonPressed) {
+    buttonPressed = true;
+    if (currentState == PARKED) {
+      currentState = START;
+      startStep = 0;
+      stateStartTime = millis();
+    }
   }
-  average /= NUM_SENSORS;
   
-  thresholdLow = average - 50;
-  thresholdHigh = average + 50;
-  
-  #ifdef DEBUG
-  Serial.print("Calculated thresholds: Low=");
-  Serial.print(thresholdLow);
-  Serial.print(", High=");
-  Serial.println(thresholdHigh);
-  #endif
+  // Reset button state when released
+  if (digitalRead(START_BUTTON_PIN) == HIGH) {
+    buttonPressed = false;
+  }
 }
 
-// Function to read all sensors and update min/max values during calibration
-void readCalibrateSensors() {
+void calibrate() {
+  int average = 0;
+
   for (int i = 0; i < NUM_SENSORS; i++) {
     int reading = analogRead(SENSOR_PINS[i]);
     minValues[i] = min(reading, minValues[i]);
     maxValues[i] = max(reading, maxValues[i]);
+
+    average += (minValues[i] + maxValues[i]) / 2;
   }
-  
-  calibrationReadings++;
-  
-  #ifdef DEBUG
-  if (calibrationReadings % 10 == 0) {
-    Serial.print("Calibration readings: ");
-    Serial.println(calibrationReadings);
-  }
-  #endif
+
+  average /= NUM_SENSORS;
+
+  thresholdLow = average - 30;
+  thresholdHigh = average + 30;
 }
 
-void calibrate() {
-  switch (calibrationStep) {
-  case 0:
+void start() {
+  if (startStep == 0) {
     // Drive over horizontal lines for calibration
-    // Yellow LEDs to indicate second step
+    // Yellow LEDs to indicate calibration step
     for (int i = 0; i < NUM_PIXELS; i++) {
       pixels.setPixelColor(i, pixels.Color(255, 255, 0));
     }
     pixels.show();
     
-    drive(255, 255); // Continue forward at medium speed
-    delay(20);
-    drive(220, 220);
-    readCalibrateSensors(); // Read and update min/max values
+    drive(210, 215);
+    // Count lines past
+    int sensorReadings[NUM_SENSORS];
+    int blackSensorCount = 0;
     
-    // After enough time to cross calibration lines
-    if (millis() - stateStartTime > 500) {
-      // Finalize calibration by calculating thresholds
-      calculateThresholds();
-      calibrationComplete = true;
-      
-      isGripClosed = true;
-
-      calibrationStep = 1;
-      stateStartTime = millis();
-      Serial.println("Calibration complete, Looking for main line");
-      
-      // Debug output of calibration values
-      #ifdef DEBUG
-      Serial.println("Calibration complete. Sensor thresholds:");
-      for (int i = 0; i < NUM_SENSORS; i++) {
-        Serial.print("Sensor ");
-        Serial.print(i);
-        Serial.print(": Min=");
-        Serial.print(minValues[i]);
-        Serial.print(", Max=");
-        Serial.println(maxValues[i]);
+    for (int i = 0; i < NUM_SENSORS; i++) {
+      sensorReadings[i] = analogRead(SENSOR_PINS[i]);
+      // Count how many sensors detect black
+      if (sensorReadings[i] >= thresholdHigh) {
+        blackSensorCount++;
       }
-      #endif
     }
-    break;
-      
-  case 1: // Slow down and look for the main line
+    
+    // Detect transitions from not on a line to on a line
+    if (blackSensorCount >= 6 && !onBlackLine) {
+      onBlackLine = true;
+      linesPast++;
+    }
+    else if (blackSensorCount < 4) { // Reset when clearly off the line
+      onBlackLine = false;
+    }
+    
+    // After passing 3 calibration lines
+    if (linesPast >= 4) {
+      onBlackLine = false;
+      delay(300);
+      isGripClosed = true;
+      startStep = 1;
+      stateStartTime = millis();
+      linesPast = 0;
+    }
+  } else if (startStep == 1) {
+    // Slow down and look for the main line
     // White LEDs to indicate looking for line
     for (int i = 0; i < NUM_PIXELS; i++) {
       pixels.setPixelColor(i, pixels.Color(255, 255, 255));
     }
     pixels.show();
     
-    drive(0, 200); // Turn left to find main line
+    leftTurn(); // Turn left to find main line
     
     // Check if line is detected
     if (isLineDetected()) {
-      Serial.println("Line found, Switching to line following mode");
+      // Go to FOLLOWING_LINE state
       currentState = FOLLOWING_LINE;
     }
     
     // If it's searching too long, try turning to find the line
-    if (millis() - stateStartTime > 2000) {
-      calibrationStep = 2;
+    if (millis() - stateStartTime > 4000) {
+      startStep = 2;
       stateStartTime = millis();
     }
-    break;
-      
-  case 2: // Turn to find the line if not found yet
-    drive(190, -190); // Turn in place
+  } else if (startStep == 2) {
+    // Turn to find the line if not found yet
+    leftTurn(); // Turn in place
     
     // Check if line is detected
     if (isLineDetected()) {
@@ -283,10 +262,9 @@ void calibrate() {
     
     // If it's searching too long, reset to step 1
     if (millis() - stateStartTime > 3000) {
-      calibrationStep = 1;
+      startStep = 1;
       stateStartTime = millis();
     }
-    break;
   }
 }
 
@@ -349,11 +327,9 @@ bool isLineDetected() {
   }
 
   // Check if middle sensors detect the line
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    if (sensorReadings[4] >= thresholdHigh || sensorReadings[5] >= thresholdHigh && sensorReadings[0] <= thresholdLow && sensorReadings[7] <= thresholdLow) {
-      lineDetected = true;
-      break;
-    }
+  if ((sensorReadings[3] >= thresholdHigh && sensorReadings[4] >= thresholdHigh) &&
+      sensorReadings[0] <= thresholdLow && sensorReadings[7] <= thresholdLow) {
+    lineDetected = true;
   } 
   
   return lineDetected;
@@ -361,7 +337,7 @@ bool isLineDetected() {
 
 void findLine() {
   // Turn slowly in place to find the line
-  drive(190, -190);
+  leftTurn();
   
   // Check if the line is detected
   if (isLineDetected()) {
@@ -387,7 +363,6 @@ void follow() {
   if (isEndOfLine()) {
     currentState = END_OF_THE_LINE;
     stateStartTime = millis(); // Set start time for the state
-    Serial.println("End of line detected!");
     return;
   }
 
@@ -398,37 +373,37 @@ void follow() {
   }
 
   // Line Following Logic 
-  if (sensorReadings[4] >= thresholdHigh && sensorReadings[5] >= thresholdHigh) {
+  if (sensorReadings[3] >= thresholdHigh && sensorReadings[4] >= thresholdHigh) {
       drive(255, 255);  // Move forward
       lastDirection = 0;  // Reset direction when moving straight
       greenLight();
   }
-  else if (sensorReadings[5] >= thresholdHigh && sensorReadings[6] >= thresholdHigh) {
-      drive(255, 175);  // Slight right
+  else if (sensorReadings[4] >= thresholdHigh && sensorReadings[5] >= thresholdHigh) {
+      drive(255, 165);  // Slight right
       lastDirection = -1;  // Remember last seen black was on the left
       rightSignal();
   } 
-  else if (sensorReadings[6] >= thresholdHigh && sensorReadings[7] >= thresholdHigh) {
+  else if (sensorReadings[5] >= thresholdHigh && sensorReadings[6] >= thresholdHigh) {
       drive(255, 55);   // More right
       lastDirection = -1;
       rightSignal();
   }  
-  else if (sensorReadings[7] >= thresholdHigh) {
+  else if (sensorReadings[6] >= thresholdHigh) {
     drive(255, 5);   // sharp right
     lastDirection = -1;
     rightSignal();
   }  
-  else if (sensorReadings[3] >= thresholdHigh && sensorReadings[4] >= thresholdHigh) {
-      drive(175, 255);  // Slight left
+  else if (sensorReadings[2] >= thresholdHigh && sensorReadings[3] >= thresholdHigh) {
+      drive(165, 255);  // Slight left
       lastDirection = 1;  // Remember last seen black was on the right
       leftSignal();
   }  
-  else if (sensorReadings[2] >= thresholdHigh && sensorReadings[3] >= thresholdHigh) {
+  else if (sensorReadings[1] >= thresholdHigh && sensorReadings[2] >= thresholdHigh) {
       drive(55, 255);   // More left
       lastDirection = 1;
       leftSignal();
   }  
-  else if (sensorReadings[1] >= thresholdHigh && sensorReadings[2] >= thresholdHigh) {
+  else if (sensorReadings[0] >= thresholdHigh && sensorReadings[1] >= thresholdHigh) {
       drive(5, 255);   // Sharp left
       lastDirection = 1;
       leftSignal();
@@ -446,8 +421,6 @@ void follow() {
       } 
       alarm();
   }
-
-  delay(50);  
 }
 
 bool isEndOfLine() {
@@ -493,7 +466,7 @@ void end() {
   isGripClosed = false;
 
   // Reverse out
-  drive(-255, -255);
+  reverse(255, 255);
   reverseLight();
 
   delay(500);
@@ -502,7 +475,7 @@ void end() {
   for (int j = 0; j < 3; j++) {
     // Flash all LEDs green
     for (int i = 0; i < NUM_PIXELS; i++) {
-      pixels.setPixelColor(i, pixels.Color(255, 0, 0));  // Green (GRB)
+      pixels.setPixelColor(i, pixels.Color(0, 255, 0));  // Green (GRB format)
     }
     pixels.show();
     delay(300);
@@ -517,18 +490,32 @@ void end() {
   
   // Set all LEDs to a steady green to indicate completion
   for (int i = 0; i < NUM_PIXELS; i++) {
-    pixels.setPixelColor(i, pixels.Color(255, 0, 0));  // Green (GRB)
+    pixels.setPixelColor(i, pixels.Color(0, 255, 0));  // Green (GRB format)
   }
   pixels.show();
 }
 
 void drive(int SPEED_LEFT, int SPEED_RIGHT) {
-  SPEED_LEFT = constrain(SPEED_LEFT, MAX_REVERSE_SPEED, MAX_SPEED);
-  SPEED_RIGHT = constrain(SPEED_RIGHT, MAX_REVERSE_SPEED, MAX_SPEED);
+  SPEED_LEFT = constrain(SPEED_LEFT, 0, MAX_SPEED);
+  SPEED_RIGHT = constrain(SPEED_RIGHT, 0, MAX_SPEED);
 
   analogWrite(MOTOR_A1, 0);
   analogWrite(MOTOR_A2, SPEED_LEFT);
   analogWrite(MOTOR_B1, SPEED_RIGHT);
+  analogWrite(MOTOR_B2, 0);
+}
+
+void reverse(int SPEED_LEFT, int SPEED_RIGHT) {
+  analogWrite(MOTOR_A1, SPEED_LEFT);
+  analogWrite(MOTOR_A2, 0);
+  analogWrite(MOTOR_B1, 0);
+  analogWrite(MOTOR_B2, SPEED_RIGHT);
+}
+
+void leftTurn() {
+  analogWrite(MOTOR_A1, 210);
+  analogWrite(MOTOR_A2, 0);
+  analogWrite(MOTOR_B1, 230);
   analogWrite(MOTOR_B2, 0);
 }
 
@@ -594,44 +581,44 @@ void gripperControl() {
 
 void brakeLight() {
   pixels.clear(); // Set all pixel colors to 'off'
-  pixels.setPixelColor(0, pixels.Color(0, 150, 0)); //Set left rear color to orange (G,R,B)
-  pixels.setPixelColor(1, pixels.Color(0, 150, 0)); //Set right rear color to orange (G,R,B)
-  pixels.show();   // Send the updated pixel colors to the hardware.
+  pixels.setPixelColor(0, pixels.Color(0, 150, 0)); // GRB format - Red brake light
+  pixels.setPixelColor(1, pixels.Color(0, 150, 0)); 
+  pixels.show();
 }
 
 void rightSignal() {
   pixels.clear(); // Set all pixel colors to 'off'
-  pixels.setPixelColor(1, pixels.Color(70, 255, 0)); //Set right rear color to orange (G,R,B)
-  pixels.setPixelColor(2, pixels.Color(70, 255, 0)); //Set right front color to orange (G,R,B)
-  pixels.show();   // Send the updated pixel colors to the hardware.
+  pixels.setPixelColor(1, pixels.Color(70, 255, 0)); // GRB format - Orange right signal
+  pixels.setPixelColor(2, pixels.Color(70, 255, 0));
+  pixels.show();
 }
 
 void leftSignal() {
   pixels.clear(); // Set all pixel colors to 'off'
-  pixels.setPixelColor(0, pixels.Color(70, 255, 0)); //Set left rear color to orange (G,R,B)
-  pixels.setPixelColor(3, pixels.Color(70, 255, 0)); //Set left front color to orange (G,R,B)
-  pixels.show();   // Send the updated pixel colors to the hardware.
+  pixels.setPixelColor(0, pixels.Color(70, 255, 0)); // GRB format - Orange left signal
+  pixels.setPixelColor(3, pixels.Color(70, 255, 0));
+  pixels.show();
 }
 
 void reverseLight() {
   pixels.clear(); // Set all pixel colors to 'off'
-  pixels.setPixelColor(0, pixels.Color(255, 255, 255)); //Set left rear color to white (G,R,B)
-  pixels.setPixelColor(1, pixels.Color(255, 255, 255)); //Set right rear color to white (G,R,B)
-  pixels.show();   // Send the updated pixel colors to the hardware.
+  pixels.setPixelColor(0, pixels.Color(255, 255, 255)); // GRB format - White reverse light
+  pixels.setPixelColor(1, pixels.Color(255, 255, 255));
+  pixels.show();
 }
 
 void greenLight() {
   pixels.clear();
   for (int i = 0; i < NUM_PIXELS; i++) {
-      pixels.setPixelColor(i, pixels.Color(255, 0, 0));  // Set all pixels to green 
-    }
+      pixels.setPixelColor(i, pixels.Color(0, 255, 0));  // GRB format - Green
+  }
   pixels.show();
 }
 
 void alarm() {
   pixels.clear();
   for (int i = 0; i < NUM_PIXELS; i++) {
-      pixels.setPixelColor(i, pixels.Color(0, 255, 0));  // Set all pixels to white 
-    }
+      pixels.setPixelColor(i, pixels.Color(0, 0, 255));  // GRB format - Red alarm
+  }
   pixels.show();
 }
