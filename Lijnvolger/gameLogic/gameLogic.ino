@@ -37,7 +37,7 @@ const int MAX_SPEED = 255;
 const int MAX_REVERSE_SPEED = -255;
 
 const int OBSTACLE_THRESHOLD = 10; // Trigger distance of obstacle in cm
-const int END_OF_LINE_TIMEOUT = 800; // Time in ms to determine it's an end square or crossing a line 
+const int END_OF_LINE_TIMEOUT = 400; // Time in ms to determine it's an end square or crossing a line 
 
 const int NUM_SENSORS = 8;
 const int SENSOR_PINS[NUM_SENSORS] = {A7, A6, A5, A4, A3, A2, A1, A0};
@@ -152,6 +152,7 @@ void loop() {
       break;
       
     case AVOIDING_OBSTACLE:
+
       avoidObstacle(distance);
       break;
 

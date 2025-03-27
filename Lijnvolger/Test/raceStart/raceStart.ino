@@ -100,16 +100,16 @@ void setup() {
 
 void loop() 
 {
-      followLine(); 
-
-/*
 
   startGripper();  
   stop();  
   pickUp();  
   stop();  
+  findLine();
+  followLine(); 
 
 
+/*
   if (!lineDetected) {
       startFindLine(); 
   }
@@ -292,7 +292,7 @@ void raceStart()
 
   Serial.println("Crossing three lines...");
 
-  while (linesCrossed < 3) { // Continue until 2 lines are crossed
+  while (linesCrossed < 2 { // Continue until 2 lines are crossed
     int blackSensors = 0;
     
     // Check how many sensors detect black
@@ -546,7 +546,7 @@ bool obstacleDetected (){
 
 void dodge()
 {
-      stop();
+    stop();
     delay(300); // When robot sees obstacle robot motor stops
 
     moveBackwards(); //robot goes backwards
@@ -633,19 +633,16 @@ void pickUp()
     }
     // Hold the cone in place (gripper stays closed after grabbing)
     else if (elapsedTime >= GRAB_TIME) {
-        // After grabbing, just hold the cone without making any further changes
-        stop();  // Ensure no further actions are taken
+        stop();  
     }
 
-    // Update the servo pulse periodically to hold the gripper in the closed position
     if (currentMillis - previousServoMillis >= SERVO_INTERVAL) {
         previousServoMillis = currentMillis;
         
-        // If the gripper is closed, just maintain that state
         if (isGripClosed) {
-            generatePulse(CLOSEGRIP_VALUE);  // Keep the gripper closed
+            generatePulse(CLOSEGRIP_VALUE);  
         } else {
-            generatePulse(OPENGRIP_VALUE);   // Open the gripper (this should not happen after the grab phase)
+            generatePulse(OPENGRIP_VALUE);   
         }
     }
 }
