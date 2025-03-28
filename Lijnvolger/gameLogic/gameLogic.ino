@@ -12,8 +12,10 @@ Adafruit_NeoPixel pixels(NUM_PIXELS, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 #define MOTOR_B1 10   // Right motor pin 1
 #define MOTOR_B2 5   // Right motor pin 2
 
-// Ultrasonic sensor pins
+// Servo pin
 #define SERVO_PIN 12
+
+// Ultrasonic sensor pins
 #define ECHO_PIN 9
 #define TRIG_PIN 8
 
@@ -195,7 +197,7 @@ void start() {
     pixels.show();
 
     // Drive over horizontal lines for calibration
-    drive(220, 228);
+    drive(205, 218);
 
     // Count lines past
     int sensorReadings[NUM_SENSORS];
@@ -220,7 +222,7 @@ void start() {
     // After passing 4 calibration lines
     if (linesPast >= 4) {
       onBlackLine = false;
-      delay(300);
+      delay(250);
       isGripClosed = true;
       startStep = 1;
       stateStartTime = millis();
@@ -249,6 +251,7 @@ void avoidObstacle(long distance) {
   switch (avoidanceStep) {
     case 0: // Turn right around the obstacle
       drive(200, 0);
+      // 2 options, turn for 500ms or turn until obstacle is no longer in front
       if (currentMillis - stateStartTime > 500 || (distance > OBSTACLE_THRESHOLD + 10 && distance > 0)) {
         avoidanceStep = 1;
         stateStartTime = currentMillis;
@@ -256,10 +259,10 @@ void avoidObstacle(long distance) {
       break;
 
     case 1: // Move forward while turning right
-      drive(200, 150);
+      drive(230, 180);
       rightSignal();
 
-      // If we've moved for a sufficient time or distance is now safe
+      // 2 options, turn for another 500ms or turn until obstacle is no longer in front
       if (currentMillis - stateStartTime > 1000 || (distance > OBSTACLE_THRESHOLD + 10 && distance > 0)) {
         avoidanceStep = 2;
         stateStartTime = currentMillis;
@@ -275,7 +278,7 @@ void avoidObstacle(long distance) {
       break;
 
     case 3: // Start turning left back towards the line
-      drive(150, 200);
+      drive(180, 230);
       leftSignal();
 
       // If it's turned for enough time or found the line
@@ -380,7 +383,6 @@ void follow() {
     } else {
       drive(200, 200);  // Go forward slowly if no memory
     }
-    alarm();
   }
 }
 
