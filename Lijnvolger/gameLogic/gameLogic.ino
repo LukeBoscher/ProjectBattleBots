@@ -67,7 +67,8 @@ enum robotState {
   AVOIDING_OBSTACLE, // Avoid obstacle on the line
   END_OF_THE_LINE, // Detect black square at the end of the line
   FINDING_LINE, // Search for the line if it's lost
-  END_SEQUENCE // Ending sequence, drop the cone and reverse out
+  END_SEQUENCE, // Ending sequence, drop the cone and reverse out
+  ENDED
 };
 
 robotState currentState = PARKED;  // Start in PARKED state
@@ -149,6 +150,11 @@ void loop() {
 
     case END_SEQUENCE:
       endSequence();
+      break;
+
+    case ENDED:
+      stop();
+      lightShow();
       break;
   }
 }
@@ -442,7 +448,7 @@ void endSequence() {
     case 2:
       if (currentMillis - endSequenceStartTime > 1000) {
         // Set all LEDs to a steady green to indicate completion
-        currentState = PARKED; // Return to parked state after completion
+        currentState = ENDED; // Prepare for a lightshow
       }
       break;
   }
