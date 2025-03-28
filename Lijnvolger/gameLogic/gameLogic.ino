@@ -1,9 +1,7 @@
 #include <Adafruit_NeoPixel.h>
 
-// Remove comment lines below to enable debugging
-// #define DEBUG
-
-#define NEO_PIXEL_PIN 13 //Attached to digital pin 13
+// NeoPixel 
+#define NEO_PIXEL_PIN 13 
 #define NUM_PIXELS 4 // Number of NeoPixels
 
 Adafruit_NeoPixel pixels(NUM_PIXELS, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
@@ -26,30 +24,38 @@ Adafruit_NeoPixel pixels(NUM_PIXELS, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 #define OPENGRIP_VALUE 120
 #define CLOSEGRIP_VALUE 50
 
-unsigned long currentMillis = 0;
+const int SERVO_INTERVAL = 20; // 20ms delay for the servo
+boolean isGripClosed = false; // Start with open gripper
+
+// Initialisation for millis
+unsigned long currentMillis = 0; 
 unsigned long previousActionMillis = 0;
 unsigned long previousServoMillis = 0;
-const int SERVO_INTERVAL = 20; // 20ms delay for the servo
+unsigned long allBlackStartTime = 0;
+unsigned long stateStartTime = 0;
+unsigned long endSequenceStartTime = 0; 
+unsigned long endReverseStartTime = 0; 
 
-boolean isGripClosed = false;
-
-const int MAX_SPEED = 255;
-
-const int OBSTACLE_THRESHOLD = 10; // Trigger distance of obstacle in cm
+const int MAX_SPEED = 255; // Maximum speed of the motor
 const int END_OF_LINE_TIMEOUT = 300; // Time in ms to determine it's an end square or crossing a line
+const int OBSTACLE_THRESHOLD = 10; // Trigger distance of obstacle in cm
 
-const int NUM_SENSORS = 8;
+const int NUM_SENSORS = 8; // Number of sensors
 const int SENSOR_PINS[NUM_SENSORS] = {A7, A6, A5, A4, A3, A2, A1, A0};
 
-int minValues[NUM_SENSORS];
-int maxValues[NUM_SENSORS];
-int thresholdLow = 0;
-int thresholdHigh = 0;
-bool calibrationComplete = false;
-unsigned long allBlackStartTime = 0;
-bool allBlackDetected = false;
-bool onBlackLine = false;
-int linesPast = 0;
+int minValues[NUM_SENSORS]; // Used to store minimum values of the line sensors
+int maxValues[NUM_SENSORS]; // Used to store maximum values of the line sensors
+int thresholdLow = 0; // Calculated threshold for the line sensors (average of all sensors - 30)
+int thresholdHigh = 0; // Calculated threshold for the line sensors (average of all sensors + 30)
+bool allBlackDetected = false; // Used to check if atleast 6 sensors detect black
+bool onBlackLine = false; // Used to check if the robot is on a black line or not, Used in START state
+int linesPast = 0; // Amount of lines past, used in START state
+int avoidanceStep = 0; // Step for the AVOIDING_OBSTACLE state
+int lastDirection = 0; // Used when line is lost, -1 (left), 1 (right), 0 (center)
+int startStep = 0; // Step for the START state
+bool buttonPressed = false; // Start with button not pressed
+int endSequenceStep = 0; // Step for the end sequence
+
 
 // Variables for the states
 enum robotState {
@@ -63,16 +69,6 @@ enum robotState {
 };
 
 robotState currentState = PARKED;  // Start in PARKED state
-unsigned long stateStartTime = 0;
-int avoidanceStep = 0;
-int lastDirection = 0; // -1 (left), 1 (right), 0 (center)
-int startStep = 0;
-bool buttonPressed = false;
-unsigned long startStep1DelayStartTime = 0; // Timer for delay in start step 1
-unsigned long findLineMoveForwardStartTime = 0; // Timer for delay in findLine
-unsigned long endReverseStartTime = 0; // Timer for delay in end reverse
-int endSequenceStep = 0; // Step for the end sequence
-unsigned long endSequenceStartTime = 0; // Timer for end sequence steps
 
 void setup() {
   pinMode(MOTOR_A1, OUTPUT);
@@ -84,8 +80,8 @@ void setup() {
   pinMode(START_BUTTON_PIN, INPUT_PULLUP);
   pinMode(SERVO_PIN, OUTPUT);
 
-  pixels.begin();
-  Serial.begin(9600);
+  pixels.begin(); // Initialize NeoPixels
+  Serial.begin(9600); // Initialize serial printing
 
   // Initialize sensor min/max values
   for (int i = 0; i < NUM_SENSORS; i++) {
@@ -94,23 +90,17 @@ void setup() {
     maxValues[i] = 0;    // Start with lowest possible value
   }
 
-  stop();
-
-  // Set all LEDs to blue to indicate PARKED state
-  for (int i = 0; i < NUM_PIXELS; i++) {
-    pixels.setPixelColor(i, pixels.Color(0, 0, 255));
-  }
-  pixels.show();
+  stop(); // Make sure the motors are stopped
 }
 
 void loop() {
-  long distance = getDistance();
+  long distance = getDistance(); // Stores distance from object
 
   buttonControl();
-  calibrate();
-  gripperControl();
+  calibrate(); // Constantly calculate average light received by sensors
+  gripperControl(); // Keep gripper active
 
-  currentMillis = millis(); // Update currentMillis at the beginning of loop
+  currentMillis = millis(); // Set currentMillis at the beginning of loop
 
   switch (currentState) {
     case PARKED:
@@ -180,7 +170,7 @@ void buttonControl() {
 }
 
 void calibrate() {
-  int average = 0;
+  int average = 0; // Add up all average values from the sensors (minimum + maximum / 2)
 
   for (int i = 0; i < NUM_SENSORS; i++) {
     int reading = analogRead(SENSOR_PINS[i]);
@@ -190,22 +180,23 @@ void calibrate() {
     average += (minValues[i] + maxValues[i]) / 2;
   }
 
-  average /= NUM_SENSORS;
+  average /= NUM_SENSORS; // Divide the average by the amount of sensors
 
-  thresholdLow = average - 30;
-  thresholdHigh = average + 30;
+  thresholdLow = average - 30; // Below thresholdLow = White
+  thresholdHigh = average + 30; // Above thresholdHigh = Black
 }
 
 void start() {
   if (startStep == 0) {
-    // Drive over horizontal lines for calibration
     // Yellow LEDs to indicate calibration step
     for (int i = 0; i < NUM_PIXELS; i++) {
       pixels.setPixelColor(i, pixels.Color(255, 255, 0));
     }
     pixels.show();
 
-    drive(210, 218);
+    // Drive over horizontal lines for calibration
+    drive(220, 228);
+
     // Count lines past
     int sensorReadings[NUM_SENSORS];
     int blackSensorCount = 0;
@@ -226,17 +217,16 @@ void start() {
       onBlackLine = false;
     }
 
-    // After passing 3 calibration lines
+    // After passing 4 calibration lines
     if (linesPast >= 4) {
       onBlackLine = false;
       delay(300);
       isGripClosed = true;
       startStep = 1;
       stateStartTime = millis();
-      linesPast = 0;
+      linesPast = 0; // Reset linesPast
     }
   } else if (startStep == 1) {
-    // Slow down and look for the main line
     // White LEDs to indicate looking for line
     for (int i = 0; i < NUM_PIXELS; i++) {
       pixels.setPixelColor(i, pixels.Color(255, 255, 255));
@@ -251,39 +241,15 @@ void start() {
       currentState = FOLLOWING_LINE;
       stop(); // Stop turning when line is found
     }
-
-    // If it's searching too long, try turning to find the line
-    if (currentMillis - stateStartTime > 4000) {
-      startStep = 2;
-      stateStartTime = currentMillis;
-      stop(); // Stop before turning in place
-    }
-  } else if (startStep == 2) {
-    // Turn to find the line if not found yet
-    leftTurn(); // Turn in place
-
-    // Check if line is detected
-    if (isLineDetected()) {
-      Serial.println("Line found, Switching to line following mode");
-      currentState = FOLLOWING_LINE;
-      stop(); // Stop turning when line is found
-    }
-
-    // If it's searching too long, reset to step 1
-    if (currentMillis - stateStartTime > 3000) {
-      startStep = 1;
-      stateStartTime = currentMillis;
-      stop(); // Stop before restarting search
-    }
-  }
+  } 
 }
 
 void avoidObstacle(long distance) {
   // State for obstacle avoidance
   switch (avoidanceStep) {
     case 0: // Turn right around the obstacle
-      drive(200, 50);
-      if (currentMillis - stateStartTime > 500) {
+      drive(200, 0);
+      if (currentMillis - stateStartTime > 500 || (distance > OBSTACLE_THRESHOLD + 10 && distance > 0)) {
         avoidanceStep = 1;
         stateStartTime = currentMillis;
       }
@@ -321,7 +287,6 @@ void avoidObstacle(long distance) {
           // Still need to search for the line
           currentState = FINDING_LINE;
           stateStartTime = currentMillis;
-          findLineMoveForwardStartTime = currentMillis; // Initialize timer for findLine
         }
       }
       break;
@@ -337,7 +302,7 @@ bool isLineDetected() {
     sensorReadings[i] = analogRead(SENSOR_PINS[i]);
   }
 
-  // Check if middle sensors detect the line
+  // Check if middle sensors detect the line and outer sensors detect white
   if ((sensorReadings[3] >= thresholdHigh && sensorReadings[4] >= thresholdHigh) &&
       sensorReadings[0] <= thresholdLow && sensorReadings[7] <= thresholdLow) {
     lineDetected = true;
@@ -347,25 +312,13 @@ bool isLineDetected() {
 }
 
 void findLine() {
-  // Turn slowly in place to find the line
+  // Turn in place to find the line
   leftTurn();
 
   // Check if the line is detected
   if (isLineDetected()) {
     currentState = FOLLOWING_LINE;
     stop(); // Stop turning when line is found
-  }
-
-  // If it's searching too long, move forward a bit and try again
-  if (currentMillis - stateStartTime > 3000) {
-    drive(220, 220);
-    if (currentMillis - findLineMoveForwardStartTime >= 300) {
-      stop();
-      stateStartTime = currentMillis; // Reset the timer
-      findLineMoveForwardStartTime = currentMillis; // Reset the move forward timer
-    }
-  } else {
-    findLineMoveForwardStartTime = currentMillis; // Keep updating the move forward timer if not in the long search
   }
 }
 
@@ -378,14 +331,14 @@ void follow() {
 
   // If all sensors are black for a longer period of time
   if (isEndOfLine()) {
-    currentState = END_OF_THE_LINE;
+    currentState = END_OF_THE_LINE; // Switch state to END_OF_THE_LINE
     stateStartTime = currentMillis; // Set start time for the state
     return;
   }
 
   // If all sensors are black for a short time
   if (allBlackDetected) {
-    drive(240, 240); // Move forward to cross horizontal line
+    drive(220, 225); // Move forward to cross horizontal line
     return;
   }
 
@@ -444,9 +397,9 @@ bool isEndOfLine() {
     }
   }
 
-  // Check if most sensors detect black (at least 6 out of 8)
+  // If most sensors detect black (at least 6 out of 8)
   if (blackSensorCount >= 6) {
-    // If most sensors detect black, start a timer
+    // Start a timer
     if (!allBlackDetected) {
       allBlackDetected = true;
       allBlackStartTime = currentMillis;
@@ -494,6 +447,7 @@ void endSequence() {
 }
 
 void drive(int SPEED_LEFT, int SPEED_RIGHT) {
+  // Keep speed within limits (between 0 and 255)
   SPEED_LEFT = constrain(SPEED_LEFT, 0, MAX_SPEED);
   SPEED_RIGHT = constrain(SPEED_RIGHT, 0, MAX_SPEED);
 
@@ -524,6 +478,7 @@ void stop() {
   analogWrite(MOTOR_B2, 0);
 }
 
+// Function to calculate microseconds to centimeters
 long microsecondsToCentimeters(long microseconds) {
   // The speed of sound is 340 m/s or 29 microseconds per centimeter.
   // The ping travels out and back, so to find the distance of the object we
@@ -531,12 +486,13 @@ long microsecondsToCentimeters(long microseconds) {
   return microseconds / 29 / 2;
 }
 
+// Function to get distance to object
 long getDistance() {
   // establish variables for duration of the ping, and the distance result
   // in centimeters:
   long duration, cm;
 
-  // The PING))) is triggered by a HIGH pulse of 2 or more microseconds.
+  // The PING is triggered by a HIGH pulse of 2 or more microseconds.
   // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
@@ -555,6 +511,7 @@ long getDistance() {
   return cm;
 }
 
+// Function to set gripper at a certain angle
 void generatePulse(int angle) {
   int pulseWidth = map(angle, 0, 180, 544, 2400);
   digitalWrite(SERVO_PIN, HIGH);
@@ -562,11 +519,12 @@ void generatePulse(int angle) {
   digitalWrite(SERVO_PIN, LOW);
 }
 
+// Function to keep gripper active
 void gripperControl() {
   currentMillis = millis();
   unsigned long elapsedTime = currentMillis - previousActionMillis;
 
-  // Keep servo active
+  // Only send a pulse every 20ms 
   if (currentMillis - previousServoMillis >= SERVO_INTERVAL) {
     previousServoMillis = currentMillis;
     if (isGripClosed) {
