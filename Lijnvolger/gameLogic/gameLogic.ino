@@ -99,7 +99,7 @@ void setup() {
 void loop() {
   long distance = getDistance(); // Stores distance from object
 
-  buttonControl();
+  flagStart(distance); // Function to start once flag is raised
   calibrate(); // Constantly calculate average light received by sensors
   gripperControl(); // Keep gripper active
 
@@ -159,6 +159,19 @@ void loop() {
   }
 }
 
+// Function to start once flag is raised
+void flagStart(long distance) {
+  if(distance >= OBSTACLE_THRESHOLD && distance > 0) {
+    if(currentState == PARKED) {
+      currentState = START;
+      startStep = 0;
+      stateStartTime = currentMillis;
+      linesPast = 0;
+    }
+  }
+}
+
+// Function to manually start with button
 void buttonControl() {
   // Check for button press
   if (digitalRead(START_BUTTON_PIN) == LOW && !buttonPressed) {
@@ -228,7 +241,7 @@ void start() {
     // After passing 4 calibration lines
     if (linesPast >= 4) {
       onBlackLine = false;
-      delay(250);
+      delay(300);
       isGripClosed = true;
       startStep = 1;
       stateStartTime = millis();
@@ -284,11 +297,11 @@ void avoidObstacle(long distance) {
       break;
 
     case 3: // Start turning left back towards the line
-      drive(180, 230);
+      drive(0, 200);
       leftSignal();
 
       // If it's turned for enough time or found the line
-      if (currentMillis - stateStartTime > 1000 || isLineDetected()) {
+      if (currentMillis - stateStartTime > 3000 || isLineDetected()) {
         if (isLineDetected()) {
           // Line found, go back to line following
           currentState = FOLLOWING_LINE;
