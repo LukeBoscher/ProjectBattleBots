@@ -24,7 +24,7 @@ Adafruit_NeoPixel pixels(NUM_PIXELS, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 //range how the gripper open and closes. 360 degrees
 #define OPENGRIP_VALUE 120
-#define CLOSEGRIP_VALUE 50
+#define CLOSEGRIP_VALUE 48
 
 const int SERVO_INTERVAL = 20; // 20ms delay for the servo
 boolean isGripClosed = false; // Start with open gripper
@@ -97,13 +97,12 @@ void setup() {
 }
 
 void loop() {
+  currentMillis = millis(); // Set currentMillis at the beginning of loop
   long distance = getDistance(); // Stores distance from object
 
   flagStart(distance); // Function to start once flag is raised
   calibrate(); // Constantly calculate average light received by sensors
   gripperControl(); // Keep gripper active
-
-  currentMillis = millis(); // Set currentMillis at the beginning of loop
 
   switch (currentState) {
     case PARKED:
@@ -265,11 +264,12 @@ void start() {
   } 
 }
 
+// Function to avoid obstacle on the line
 void avoidObstacle(long distance) {
-  // State for obstacle avoidance
   switch (avoidanceStep) {
     case 0: // Turn right around the obstacle
-      drive(200, 0);
+      drive(220, 0);
+      rightSignal();
       // 2 options, turn for 500ms or turn until obstacle is no longer in front
       if (currentMillis - stateStartTime > 500 || (distance > OBSTACLE_THRESHOLD + 10 && distance > 0)) {
         avoidanceStep = 1;
@@ -277,36 +277,34 @@ void avoidObstacle(long distance) {
       }
       break;
 
-    case 1: // Move forward while turning right
-      drive(230, 180);
-      rightSignal();
-
-      // 2 options, turn for another 500ms or turn until obstacle is no longer in front
-      if (currentMillis - stateStartTime > 1000 || (distance > OBSTACLE_THRESHOLD + 10 && distance > 0)) {
+    case 1: // Move forward for 500 ms
+      drive(220, 220);
+      if (currentMillis - stateStartTime > 500) {
         avoidanceStep = 2;
         stateStartTime = currentMillis;
       }
       break;
 
-    case 2: // Continue moving forward
-      drive(200, 200);
-      if (currentMillis - stateStartTime > 500) {
+    case 2: // Sharp left turn for 400 ms
+      drive(0, 240);
+      leftSignal();
+      if (currentMillis - stateStartTime > 400) {
         avoidanceStep = 3;
         stateStartTime = currentMillis;
       }
       break;
 
-    case 3: // Start turning left back towards the line
-      drive(0, 200);
+    case 3: // Slight left turn to find the line
+      drive(160, 255);
       leftSignal();
 
-      // If it's turned for enough time or found the line
-      if (currentMillis - stateStartTime > 3000 || isLineDetected()) {
+
+      if (currentMillis - stateStartTime > 4000 || isLineDetected()) {
         if (isLineDetected()) {
           // Line found, go back to line following
           currentState = FOLLOWING_LINE;
         } else {
-          // Still need to search for the line
+          // If the line is not found within 4 seconds
           currentState = FINDING_LINE;
           stateStartTime = currentMillis;
         }
