@@ -59,8 +59,8 @@ int endSequenceStep = 0; // Step for the end sequence
 
 // Variables for the states
 enum robotState {
-  PARKED, // Starting state, press button to go to START
-  START, // Drive forward over 4 lines, then turn left to find the main line
+  PARKED, // Starting state, press button to go to START state
+  START, // Drive forward over calibration lines, then turn left to find the main line
   FOLLOWING_LINE, // Line following logic
   AVOIDING_OBSTACLE, // Avoid obstacle on the line
   END_OF_THE_LINE, // Detect black square at the end of the line
@@ -130,7 +130,6 @@ void loop() {
       }
       break;
 
-
     case AVOIDING_OBSTACLE:
       avoidObstacle(distance);
       break;
@@ -163,6 +162,7 @@ void flagStart(long distance) {
     buttonPressed = true;
   }
 
+  // Require 5 readings for better stability
   if(distance >= OBSTACLE_THRESHOLD && distance > 0 && buttonPressed == true) {
     positiveReadings++;
   }
@@ -388,6 +388,7 @@ void follow() {
   }
 }
 
+// Function to detect a black square
 bool isBlackSquare() {
   int sensorReadings[NUM_SENSORS];
   int blackSensorCount = 0;
@@ -422,6 +423,7 @@ bool isBlackSquare() {
   }
 }
 
+// Function to drop the cone on the black square
 void endSequence() {
   switch (endSequenceStep) {
     case 0:
@@ -430,6 +432,8 @@ void endSequence() {
       endSequenceStep++;
       endReverseStartTime = currentMillis;
       break;
+    
+    // After 200 ms, reverse
     case 1:
       if(currentMillis - endReverseStartTime > 200) {
         reverse(230,230);
@@ -437,8 +441,10 @@ void endSequence() {
         endSequenceStep++;
         endReverseStartTime = currentMillis;
       }
+      break;
+
+    // After 400 ms, stop
     case 2:
-      // Wait for reverse duration
       if (currentMillis - endReverseStartTime > 400) {
         stop();
         brakeLight();
@@ -447,6 +453,7 @@ void endSequence() {
       }
       break;
 
+    // After 100 ms, open the gripper
     case 3:
       if(currentMillis - endReverseStartTime > 100) {
         isGripClosed = false;
@@ -454,6 +461,9 @@ void endSequence() {
         endSequenceStep++;
         endSequenceStartTime = currentMillis;
       }
+      break;
+
+    // After 100 ms, reverse
     case 4:
       if (currentMillis - endSequenceStartTime > 100) {
         reverse(230, 230);
@@ -462,9 +472,11 @@ void endSequence() {
         endSequenceStartTime = currentMillis;
       }
       break;
+
+    // After 2000ms, end the program
     case 5:
       if (currentMillis - endSequenceStartTime > 2000) {
-        currentState = ENDED; // Prepare for a lightshow
+        currentState = ENDED; // Display a lightshow
       }
   }
 }
@@ -481,6 +493,10 @@ void drive(int SPEED_LEFT, int SPEED_RIGHT) {
 }
 
 void reverse(int SPEED_LEFT, int SPEED_RIGHT) {
+  // Keep speed within limits (between 0 and 255)
+  SPEED_LEFT = constrain(SPEED_LEFT, 0, MAX_SPEED);
+  SPEED_RIGHT = constrain(SPEED_RIGHT, 0, MAX_SPEED);
+
   analogWrite(MOTOR_A1, SPEED_LEFT);
   analogWrite(MOTOR_A2, 0);
   analogWrite(MOTOR_B1, SPEED_RIGHT);
@@ -601,7 +617,7 @@ void alarm() {
   pixels.show();
 }
 
-
+// Function for a light show, only used at the end
 void lightShow() 
 {
     for (int i = 0; i < 5; i++) { // Repeat the effect 5 times
