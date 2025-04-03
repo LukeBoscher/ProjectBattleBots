@@ -24,14 +24,13 @@ Adafruit_NeoPixel pixels(NUM_PIXELS, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 //range how the gripper open and closes. 360 degrees
 #define OPENGRIP_VALUE 120
-#define CLOSEGRIP_VALUE 48
+#define CLOSEGRIP_VALUE 50
 
-const int SERVO_INTERVAL = 20; // 20ms delay for the servo
+const int SERVO_INTERVAL = 10; // 10ms delay for the servo
 boolean isGripClosed = false; // Start with open gripper
 
 // Initialisation for millis
 unsigned long currentMillis = 0; 
-unsigned long previousActionMillis = 0;
 unsigned long previousServoMillis = 0;
 unsigned long allBlackStartTime = 0;
 unsigned long stateStartTime = 0;
@@ -39,8 +38,8 @@ unsigned long endSequenceStartTime = 0;
 unsigned long endReverseStartTime = 0; 
 
 const int MAX_SPEED = 255; // Maximum speed of the motor
-const int END_OF_LINE_TIMEOUT = 300; // Time in ms to determine it's an end square or crossing a line
-const int OBSTACLE_THRESHOLD = 10; // Trigger distance of obstacle in cm
+const int BLACK_SQUARE_TIMEOUT = 300; // Time in ms to determine it's an end square or crossing a line
+const int OBSTACLE_THRESHOLD = 15; // Trigger distance of obstacle in cm
 
 const int NUM_SENSORS = 8; // Number of sensors
 const int SENSOR_PINS[NUM_SENSORS] = {A7, A6, A5, A4, A3, A2, A1, A0};
@@ -50,8 +49,7 @@ int maxValues[NUM_SENSORS]; // Used to store maximum values of the line sensors
 int thresholdLow = 0; // Calculated threshold for the line sensors (average of all sensors - 30)
 int thresholdHigh = 0; // Calculated threshold for the line sensors (average of all sensors + 30)
 bool allBlackDetected = false; // Used to check if atleast 6 sensors detect black
-bool onBlackLine = false; // Used to check if the robot is on a black line or not, Used in START state
-int linesPast = 0; // Amount of lines past, used in START state
+int positiveReadings = 0; // Amount of positive readings from ultrasonic sensor, used in flagStart
 int avoidanceStep = 0; // Step for the AVOIDING_OBSTACLE state
 int lastDirection = 0; // Used when line is lost, -1 (left), 1 (right), 0 (center)
 int startStep = 0; // Step for the START state
@@ -160,12 +158,22 @@ void loop() {
 
 // Function to start once flag is raised
 void flagStart(long distance) {
-  if(distance >= OBSTACLE_THRESHOLD && distance > 0) {
+  // Check for button press
+  if (digitalRead(START_BUTTON_PIN) == LOW && !buttonPressed) {
+    buttonPressed = true;
+  }
+
+  if(distance >= OBSTACLE_THRESHOLD && distance > 0 && buttonPressed == true) {
+    positiveReadings++;
+  }
+
+  if(positiveReadings >= 5 && buttonPressed == true) {
     if(currentState == PARKED) {
       currentState = START;
       startStep = 0;
       stateStartTime = currentMillis;
-      linesPast = 0;
+      buttonPressed = false; // reset button
+      positiveReadings = 0; //reset positiveReadings
     }
   }
 }
@@ -179,7 +187,6 @@ void buttonControl() {
       currentState = START;
       startStep = 0;
       stateStartTime = currentMillis;
-      linesPast = 0; // Reset lines past when starting
     }
   }
 
@@ -216,36 +223,14 @@ void start() {
 
     // Drive over horizontal lines for calibration
     drive(205, 218);
-
-    // Count lines past
-    int sensorReadings[NUM_SENSORS];
-    int blackSensorCount = 0;
-
-    for (int i = 0; i < NUM_SENSORS; i++) {
-      sensorReadings[i] = analogRead(SENSOR_PINS[i]);
-      // Count how many sensors detect black
-      if (sensorReadings[i] >= thresholdHigh) {
-        blackSensorCount++;
-      }
-    }
-
-    // Detect transitions from not on a line to on a line
-    if (blackSensorCount >= 6 && !onBlackLine) {
-      onBlackLine = true;
-      linesPast++;
-    } else if (blackSensorCount < 4) { // Reset when clearly off the line
-      onBlackLine = false;
-    }
-
-    // After passing 4 calibration lines
-    if (linesPast >= 4) {
-      onBlackLine = false;
-      delay(300);
+  
+    // After detecting a black square
+    if (isBlackSquare()) {
       isGripClosed = true;
       startStep = 1;
       stateStartTime = millis();
-      linesPast = 0; // Reset linesPast
     }
+
   } else if (startStep == 1) {
     // White LEDs to indicate looking for line
     for (int i = 0; i < NUM_PIXELS; i++) {
@@ -279,7 +264,7 @@ void avoidObstacle(long distance) {
 
     case 1: // Move forward for 500 ms
       drive(220, 220);
-      if (currentMillis - stateStartTime > 500) {
+      if (currentMillis - stateStartTime > 800) {
         avoidanceStep = 2;
         stateStartTime = currentMillis;
       }
@@ -350,7 +335,7 @@ void follow() {
   }
 
   // If all sensors are black for a longer period of time
-  if (isEndOfLine()) {
+  if (isBlackSquare()) {
     currentState = END_OF_THE_LINE; // Switch state to END_OF_THE_LINE
     stateStartTime = currentMillis; // Set start time for the state
     return;
@@ -403,7 +388,7 @@ void follow() {
   }
 }
 
-bool isEndOfLine() {
+bool isBlackSquare() {
   int sensorReadings[NUM_SENSORS];
   int blackSensorCount = 0;
 
@@ -425,7 +410,7 @@ bool isEndOfLine() {
       return false; // Don't trigger end of line yet
     }
     // If most sensors are black for longer than the timeout
-    else if (currentMillis - allBlackStartTime > END_OF_LINE_TIMEOUT) {
+    else if (currentMillis - allBlackStartTime > BLACK_SQUARE_TIMEOUT) {
       return true;
     }
 
@@ -440,28 +425,47 @@ bool isEndOfLine() {
 void endSequence() {
   switch (endSequenceStep) {
     case 0:
-      // Drop the cone
-      isGripClosed = false;
-      // Reverse out after dropping
-      reverse(255, 255);
-      reverseLight();
+      stop();
+      brakeLight();
       endSequenceStep++;
       endReverseStartTime = currentMillis;
       break;
     case 1:
+      if(currentMillis - endReverseStartTime > 200) {
+        reverse(230,230);
+        reverseLight();
+        endSequenceStep++;
+        endReverseStartTime = currentMillis;
+      }
+    case 2:
       // Wait for reverse duration
-      if (currentMillis - endReverseStartTime > 800) {
+      if (currentMillis - endReverseStartTime > 400) {
         stop();
+        brakeLight();
         endSequenceStep++;
         endSequenceStartTime = currentMillis;
       }
       break;
-    case 2:
-      if (currentMillis - endSequenceStartTime > 1000) {
-        // Set all LEDs to a steady green to indicate completion
-        currentState = ENDED; // Prepare for a lightshow
+
+    case 3:
+      if(currentMillis - endReverseStartTime > 100) {
+        isGripClosed = false;
+        brakeLight();
+        endSequenceStep++;
+        endSequenceStartTime = currentMillis;
+      }
+    case 4:
+      if (currentMillis - endSequenceStartTime > 100) {
+        reverse(230, 230);
+        reverseLight();
+        endSequenceStep++;
+        endSequenceStartTime = currentMillis;
       }
       break;
+    case 5:
+      if (currentMillis - endSequenceStartTime > 2000) {
+        currentState = ENDED; // Prepare for a lightshow
+      }
   }
 }
 
@@ -541,9 +545,8 @@ void generatePulse(int angle) {
 // Function to keep gripper active
 void gripperControl() {
   currentMillis = millis();
-  unsigned long elapsedTime = currentMillis - previousActionMillis;
 
-  // Only send a pulse every 20ms 
+  // Only send a pulse every 10ms 
   if (currentMillis - previousServoMillis >= SERVO_INTERVAL) {
     previousServoMillis = currentMillis;
     if (isGripClosed) {
@@ -585,7 +588,7 @@ void reverseLight() {
 void greenLight() {
   pixels.clear();
   for (int i = 0; i < NUM_PIXELS; i++) {
-    pixels.setPixelColor(i, pixels.Color(0, 255, 0));  // GRB format - Green
+    pixels.setPixelColor(i, pixels.Color(255, 0, 0));  // GRB format - Green
   }
   pixels.show();
 }
@@ -593,7 +596,7 @@ void greenLight() {
 void alarm() {
   pixels.clear();
   for (int i = 0; i < NUM_PIXELS; i++) {
-    pixels.setPixelColor(i, pixels.Color(0, 0, 255));  // GRB format - Red alarm
+    pixels.setPixelColor(i, pixels.Color(0, 255, 0));  // GRB format - Red alarm
   }
   pixels.show();
 }
