@@ -31,6 +31,7 @@ boolean isGripClosed = false; // Start with open gripper
 
 // Initialisation for millis
 unsigned long currentMillis = 0; 
+unsigned long servoMillis = 0;
 unsigned long previousServoMillis = 0;
 unsigned long allBlackStartTime = 0;
 unsigned long stateStartTime = 0;
@@ -55,7 +56,7 @@ int lastDirection = 0; // Used when line is lost, -1 (left), 1 (right), 0 (cente
 int startStep = 0; // Step for the START state
 bool buttonPressed = false; // Start with button not pressed
 int endSequenceStep = 0; // Step for the end sequence
-
+long distance = 0; // Stores distance from object
 
 // Variables for the states
 enum robotState {
@@ -96,21 +97,20 @@ void setup() {
 
 void loop() {
   currentMillis = millis(); // Set currentMillis at the beginning of loop
-  long distance = getDistance(); // Stores distance from object
-
+  
+  // Only measure distance if not in ENDED state to not interfere with other robots 
+  if (currentState != ENDED) {
+    distance = getDistance(); // Stores distance from object
+  }
+  
   flagStart(distance); // Function to start once flag is raised
   calibrate(); // Constantly calculate average light received by sensors
   gripperControl(); // Keep gripper active
 
   switch (currentState) {
     case PARKED:
-      // Wait for button press
       stop();
-      // Keep blue LEDs on for PARKED state
-      for (int i = 0; i < NUM_PIXELS; i++) {
-        pixels.setPixelColor(i, pixels.Color(0, 0, 255));
-      }
-      pixels.show();
+      parkingLight();
       break;
 
     case START:
@@ -126,12 +126,12 @@ void loop() {
         currentState = AVOIDING_OBSTACLE;
         avoidanceStep = 0;
         stateStartTime = currentMillis;
-        alarm(); // Red warning lights
       }
       break;
 
     case AVOIDING_OBSTACLE:
       avoidObstacle(distance);
+      alarm(); // Red warning lights
       break;
 
     case END_OF_THE_LINE:
@@ -178,24 +178,6 @@ void flagStart(long distance) {
   }
 }
 
-// Function to manually start with button
-void buttonControl() {
-  // Check for button press
-  if (digitalRead(START_BUTTON_PIN) == LOW && !buttonPressed) {
-    buttonPressed = true;
-    if (currentState == PARKED) {
-      currentState = START;
-      startStep = 0;
-      stateStartTime = currentMillis;
-    }
-  }
-
-  // Reset button state when released
-  if (digitalRead(START_BUTTON_PIN) == HIGH) {
-    buttonPressed = false;
-  }
-}
-
 void calibrate() {
   int average = 0; // Add up all average values from the sensors (minimum + maximum / 2)
 
@@ -239,6 +221,7 @@ void start() {
     pixels.show();
 
     leftTurn(); // Turn left to find main line
+    isGripClosed = true;
 
     // Check if line is detected
     if (isLineDetected()) {
@@ -466,6 +449,7 @@ void endSequence() {
     // After 100 ms, reverse
     case 4:
       if (currentMillis - endSequenceStartTime > 100) {
+        isGripClosed = false;
         reverse(230, 230);
         reverseLight();
         endSequenceStep++;
@@ -519,29 +503,37 @@ void stop() {
 
 // Function to calculate microseconds to centimeters
 long microsecondsToCentimeters(long microseconds) {
-  // The speed of sound is 340 m/s or 29 microseconds per centimeter.
-  // The ping travels out and back, so to find the distance of the object we
-  // take half of the distance travelled.
+  /* 
+  The speed of sound is 340 m/s or 29 microseconds per centimeter.
+  The ping travels out and back, so to find the distance of the object we
+  take half of the distance travelled.
+  */
   return microseconds / 29 / 2;
 }
 
 // Function to get distance to object
 long getDistance() {
-  // establish variables for duration of the ping, and the distance result
-  // in centimeters:
+  /* 
+  establish variables for duration of the ping, and the distance result
+  in centimeters:
+  */
   long duration, cm;
 
-  // The PING is triggered by a HIGH pulse of 2 or more microseconds.
-  // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
+  /* 
+  The PING is triggered by a HIGH pulse of 2 or more microseconds.
+  Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
+  */
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
 
-  // The same pin is used to read the signal from the PING))): a HIGH pulse
-  // whose duration is the time (in microseconds) from the sending of the ping
-  // to the reception of its echo off of an object.
+  /*
+  The same pin is used to read the signal from the PING))): a HIGH pulse
+  whose duration is the time (in microseconds) from the sending of the ping
+  to the reception of its echo off of an object.
+  */
   duration = pulseIn(ECHO_PIN, HIGH, 20000);
 
   // convert the time into a distance
@@ -560,11 +552,11 @@ void generatePulse(int angle) {
 
 // Function to keep gripper active
 void gripperControl() {
-  currentMillis = millis();
+  servoMillis = millis();
 
   // Only send a pulse every 10ms 
-  if (currentMillis - previousServoMillis >= SERVO_INTERVAL) {
-    previousServoMillis = currentMillis;
+  if (servoMillis - previousServoMillis >= SERVO_INTERVAL) {
+    previousServoMillis = servoMillis;
     if (isGripClosed) {
       generatePulse(CLOSEGRIP_VALUE);
     } else {
@@ -598,6 +590,14 @@ void reverseLight() {
   pixels.clear(); // Set all pixel colors to 'off'
   pixels.setPixelColor(0, pixels.Color(255, 255, 255)); // GRB format - White reverse light
   pixels.setPixelColor(1, pixels.Color(255, 255, 255));
+  pixels.show();
+}
+
+void parkingLight() {
+  pixels.clear();
+  for (int i = 0; i < NUM_PIXELS; i++) {
+    pixels.setPixelColor(i, pixels.Color(0, 0, 255)); // GRB format - Blue 
+  }
   pixels.show();
 }
 
