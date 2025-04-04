@@ -1,10 +1,10 @@
 // I/O List
 // | Pin   | Name              | Description                          |
 // |-------|-------------------|--------------------------------------|
-// | 6     | MOTOR_L1_PIN      | Left motor forward                  |
-// | 11    | MOTOR_L2_PIN      | Left motor backward                 |
-// | 10    | MOTOR_R1_PIN      | Right motor forward                 |
-// | 5     | MOTOR_R2_PIN      | Right motor backward                |
+// | 6     | MOTOR_L1_PIN      | Left motor backward                 |
+// | 11    | MOTOR_L2_PIN      | Left motor forward                  |
+// | 10    | MOTOR_R1_PIN      | Right motor backward                |
+// | 5     | MOTOR_R2_PIN      | Right motor forward                 |
 // | 8     | TRIG_FRONT_PIN    | Ultrasonic sensor front trigger     |
 // | 9     | ECHO_FRONT_PIN    | Ultrasonic sensor front echo        |
 // | 3     | TRIG_LEFT_PIN     | Ultrasonic sensor left trigger      |
@@ -112,7 +112,22 @@ void setup() {
 
   // Initialize Servo
   pinMode(SERVO_PIN, OUTPUT);
-  digitalWrite(SERVO_PIN, LOW);
+
+  // force input to LOW
+  digitalWrite(MOTOR_L1_PIN, LOW);
+  digitalWrite(MOTOR_L2_PIN, LOW);
+  digitalWrite(MOTOR_R1_PIN, LOW);
+  digitalWrite(MOTOR_R2_PIN, LOW);
+
+  digitalWrite(TRIG_FRONT_PIN, LOW);
+  digitalWrite(TRIG_LEFT_PIN, LOW);
+  digitalWrite(TRIG_RIGHT_PIN, LOW);
+  
+  digitalWrite(SERVO_PIN, LOW); // Disable servo PWM
+
+  for (int i = 0; i < NUM_PIXELS; i++) {
+    strip.setPixelColor(i, 0); // Black/off
+  }
 
   // Initialize Serial Communication
   Serial.begin(9600);
@@ -122,6 +137,53 @@ void setup() {
   strip.show();
 
   stopMotors();
+}
+
+void loop() {
+  int confirmed = 0;
+  while (!start) {
+    float d = measureDistance("front");
+    if (d < 30 && d > 0) confirmed++;
+    else confirmed = 0;
+    
+    if (confirmed > 3) start = true;
+    delay(100);
+  }
+
+
+  calibrateLineSensor();
+
+  if (initialDistanceLeft == 0) {
+    initialDistanceLeft = measureDistance("left");
+    delay(800);
+    driveMotors(252, 255);
+    moveServo(GRIPPER_OPEN_PULSE);
+    startMaze = true;
+  }
+
+  float distanceLeft = measureDistance("left");
+
+  if (startMaze) {
+    if (distanceLeft > initialDistanceLeft + 10) {
+      startMaze = false;
+    } else {
+      driveMotors(240, 255);
+    }
+  } else {
+    if (!mazeActive) {
+      delay(300);
+      moveServo(GRIPPER_CLOSE_PULSE);
+      if (turning) {
+        driveMotors(-255, 255);
+        delay(500);
+        driveMotors(253, 255);
+        delay(100);
+        mazeActive = true;
+        turning = false;
+      }
+    }
+    lineFollower();
+  }
 }
 
 void driveMotors(int speedLeft, int speedRight) {
@@ -291,23 +353,31 @@ void mazeLogic() {
 
   checkAndReverse(prevDistanceFront, prevDistanceLeft, prevDistanceRight);
 
+  int speedLeft = BASE_SPEED;
+  int speedRight = BASE_SPEED;
+  
+  // if checkAndReverse is triggered and still stuck, set 
   if (reverse) {
-    float distanceFront = measureDistance("front");
+    distanceFront = measureDistance("front");
     if (distanceFront < MIN_FRONT_DISTANCE) {
       distanceFront = 15;
     }
-    float distanceLeft = measureDistance("left");
-    float distanceRight = measureDistance("right");
+    distanceLeft = measureDistance("left");
+    distanceRight = measureDistance("right");
+    if (distanceRight > distanceLeft){
+      speedLeft = MAX_SPEED;
+      speedRight = -255;
+    }
+    return;
   }
 
-  int speedLeft = BASE_SPEED;
-  int speedRight = BASE_SPEED;
-
+  // if dead-end turn around till it sees free space
   if (distanceFront <= 15 && distanceLeft <= 15 && distanceRight <= 15) {
     turn180(distanceFront, distanceLeft, distanceRight);
     return;
   }
 
+  // steering based on right wall following
   if (distanceFront > MIN_FRONT_DISTANCE) {
     if (distanceRight > 20) {
       speedLeft = MAX_SPEED;
@@ -371,7 +441,8 @@ void calibrateLineSensor() {
 
 void lineFollower() {
   calibrateLineSensor();
-
+  
+  // steering based on linesensor
   if (lineFollowerCount == 1) {
     mazeLogic();
   } else if (sensorReadings[4] >= deadzoneHigh && sensorReadings[5] >= deadzoneHigh) {
@@ -458,47 +529,4 @@ void controlLights(String direction) {
     }
 
     strip.show();  // Update the strip to reflect changes
-}
-
-void loop() {
-  while (!start) {
-    float distanceFront = measureDistance("front");
-    if (distanceFront < 30 && distanceFront) {
-      start = true;
-    }
-  }
-
-  calibrateLineSensor();
-
-  if (initialDistanceLeft == 0) {
-    initialDistanceLeft = measureDistance("left");
-    delay(800);
-    driveMotors(252, 255);
-    moveServo(GRIPPER_OPEN_PULSE);
-    startMaze = true;
-  }
-
-  float distanceLeft = measureDistance("left");
-
-  if (startMaze) {
-    if (distanceLeft > initialDistanceLeft + 10) {
-      startMaze = false;
-    } else {
-      driveMotors(240, 255);
-    }
-  } else {
-    if (!mazeActive) {
-      delay(300);
-      moveServo(GRIPPER_CLOSE_PULSE);
-      if (turning) {
-        driveMotors(-255, 255);
-        delay(500);
-        driveMotors(253, 255);
-        delay(100);
-        mazeActive = true;
-        turning = false;
-      }
-    }
-    lineFollower();
-  }
 }
