@@ -23,8 +23,8 @@ Adafruit_NeoPixel pixels(NUM_PIXELS, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 #define START_BUTTON_PIN 4
 
 //range how the gripper open and closes. 360 degrees
-#define OPENGRIP_VALUE 120
-#define CLOSEGRIP_VALUE 50
+#define OPENGRIP_VALUE 100
+#define CLOSEGRIP_VALUE 46
 
 const int SERVO_INTERVAL = 10; // 10ms delay for the servo
 boolean isGripClosed = false; // Start with open gripper
@@ -173,7 +173,7 @@ void flagStart(long distance) {
       startStep = 0;
       stateStartTime = currentMillis;
       buttonPressed = false; // reset button
-      positiveReadings = 0; //reset positiveReadings
+      positiveReadings = 0; // reset positiveReadings
     }
   }
 }
@@ -199,7 +199,7 @@ void start() {
   if (startStep == 0) {
     // Yellow LEDs to indicate calibration step
     for (int i = 0; i < NUM_PIXELS; i++) {
-      pixels.setPixelColor(i, pixels.Color(255, 255, 0));
+      pixels.setPixelColor(i, pixels.Color(150, 150, 0));
     }
     pixels.show();
 
@@ -216,12 +216,11 @@ void start() {
   } else if (startStep == 1) {
     // White LEDs to indicate looking for line
     for (int i = 0; i < NUM_PIXELS; i++) {
-      pixels.setPixelColor(i, pixels.Color(255, 255, 255));
+      pixels.setPixelColor(i, pixels.Color(150, 150, 150));
     }
     pixels.show();
 
     leftTurn(); // Turn left to find main line
-    isGripClosed = true;
 
     // Check if line is detected
     if (isLineDetected()) {
@@ -449,7 +448,6 @@ void endSequence() {
     // After 100 ms, reverse
     case 4:
       if (currentMillis - endSequenceStartTime > 100) {
-        isGripClosed = false;
         reverse(230, 230);
         reverseLight();
         endSequenceStep++;
@@ -588,15 +586,15 @@ void leftSignal() {
 
 void reverseLight() {
   pixels.clear(); // Set all pixel colors to 'off'
-  pixels.setPixelColor(0, pixels.Color(255, 255, 255)); // GRB format - White reverse light
-  pixels.setPixelColor(1, pixels.Color(255, 255, 255));
+  pixels.setPixelColor(0, pixels.Color(150, 150, 150)); // GRB format - White reverse light
+  pixels.setPixelColor(1, pixels.Color(150, 150, 150));
   pixels.show();
 }
 
 void parkingLight() {
   pixels.clear();
   for (int i = 0; i < NUM_PIXELS; i++) {
-    pixels.setPixelColor(i, pixels.Color(0, 0, 255)); // GRB format - Blue 
+    pixels.setPixelColor(i, pixels.Color(0, 0, 150)); // GRB format - Blue 
   }
   pixels.show();
 }
@@ -604,7 +602,7 @@ void parkingLight() {
 void greenLight() {
   pixels.clear();
   for (int i = 0; i < NUM_PIXELS; i++) {
-    pixels.setPixelColor(i, pixels.Color(255, 0, 0));  // GRB format - Green
+    pixels.setPixelColor(i, pixels.Color(150, 0, 0));  // GRB format - Green
   }
   pixels.show();
 }
@@ -612,7 +610,7 @@ void greenLight() {
 void alarm() {
   pixels.clear();
   for (int i = 0; i < NUM_PIXELS; i++) {
-    pixels.setPixelColor(i, pixels.Color(0, 255, 0));  // GRB format - Red alarm
+    pixels.setPixelColor(i, pixels.Color(0, 150, 0));  // GRB format - Red alarm
   }
   pixels.show();
 }
