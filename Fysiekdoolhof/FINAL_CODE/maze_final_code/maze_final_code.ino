@@ -368,6 +368,11 @@ void mazeLogic() {
       speedLeft = MAX_SPEED;
       speedRight = -255;
     }
+    else {
+      speedLeft = -255;
+      speedRight = MAX_SPEED;
+    }
+    driveMotors(speedLeft, speedRight);
     return;
   }
 
