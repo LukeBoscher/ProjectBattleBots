@@ -204,7 +204,7 @@ void start() {
     pixels.show();
 
     // Drive over horizontal lines for calibration
-    drive(205, 218);
+    drive(205, 222);
   
     // After detecting a black square
     if (isBlackSquare()) {
