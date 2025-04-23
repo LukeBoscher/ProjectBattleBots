@@ -310,19 +310,19 @@ void MazeLine() {
     delay(75);
 }
 
-void coneDrop() {
+void ConeDrop() {
     unsigned long turnStartTime = 0;
     bool turning = false;
 
-    if (_DISTANCE > 30 && _DISTANCE < 50) {
-        gripperOpen();
-        motorControl(STEADY_SPEED, 0, STEADY_SPEED, 0);
-        regularLight(); // Turn on regular light while moving forward
+    if (_distance > 30 && _distance < 50) {
+        GripperOpen();
+        MotorControl(STEADY_SPEED, 0, STEADY_SPEED, 0);
+        RegularLight(); // Turn on regular light while moving forward
 
-        if (_DISTANCE < 5) {
-            gripperClosed();
-            _START = true;
-            brakeLight(); // Turn on brake light when stopping
+        if (_distanceE < 5) {
+            GripperClosed();
+            _start = true;
+            BrakeLight(); // Turn on brake light when stopping
         }
 
         if (!turning) {
@@ -331,43 +331,43 @@ void coneDrop() {
         }
 
         if (turning && millis() - turnStartTime >= 275) {
-            motorControl(0, SLOW_SPEED, SLOW_SPEED, 0); // Turn left
-            blinkerLeft(); // Turn on left blinker while turning
+            MotorControl(0, SLOW_SPEED, SLOW_SPEED, 0); // Turn left
+            BlinkerLeft(); // Turn on left blinker while turning
         }
 
         if (turning && millis() - turnStartTime >= 1000) {
-            motorControl(STEADY_SPEED, 0, STEADY_SPEED, 0); // Move forward
-            regularLight(); // Switch back to regular light
+            MotorControl(STEADY_SPEED, 0, STEADY_SPEED, 0); // Move forward
+            RegularLight(); // Switch back to regular light
             turning = false;
         }
     }
 
-    if (_START) {
-        if (sensorReadings[7] >= _DEADZONEHIGH && sensorReadings[0] >= _DEADZONEHIGH) {
-            if (!_TIMERRUNNING) {
-                _STARTTIME = millis(); // Start the timer
-                _TIMERRUNNING = true;
+    if (_start) {
+        if (sensorReadings[7] >= _deadZoneHigh && sensorReadings[0] >= _deadZoneHigh) {
+            if (!_timerRunning) {
+                _startTime = millis(); // Start the timer
+                _timerRunning = true;
             }
         } else {
-            _TIMERRUNNING = false; // Reset the timer if sensors detect nothing
-            _STARTTIME = 0;
+            _timerRunning = false; // Reset the timer if sensors detect nothing
+            _startTime = 0;
         }
 
-        if (_TIMERRUNNING && millis() - _STARTTIME >= 250) {
-            gripperOpen();
-            motorControl(-STEADY_SPEED, 0, -STEADY_SPEED, 0); // Move backward
-            brakeLight(); // Turn on brake light while reversing
-            _TIMERRUNNING = false; // Reset the timer after the action
+        if (_timerRunning && millis() - _startTime >= 250) {
+            GripperOpen();
+            MotorControl(-STEADY_SPEED, 0, -STEADY_SPEED, 0); // Move backward
+            BrakeLight(); // Turn on brake light while reversing
+            _timerRunning = false; // Reset the timer after the action
         }
 
-        mazeLine(); // Start the MazeLine function if _START is true
+        MazeLine(); // Start the MazeLine function if _START is true
     }
 }
 
 //-------------LIGHT FUNCTIONS------------------------------------
 
 //-------------DEFAULT INDICATOR PROGRAM
-void blinkers(int upper, int lower, bool active) {
+void Blinkers(int upper, int lower, bool active) {
     static unsigned long previousMillis = 0;
     static bool ledState = false;  // Ensure ledState is retained across calls
     unsigned long currentMillis = millis();
@@ -394,25 +394,25 @@ void blinkers(int upper, int lower, bool active) {
 }
 
 //-------------LEFT BLINKER
-void blinkerLeft() {
+void BlinkerLeft() {
     strip.clear();
-    blinkers(0, 3, true);
+    Blinkers(0, 3, true);
     strip.setPixelColor(1, strip.Color(150, 0, 0));  // Red
     strip.setPixelColor(2, strip.Color(100, 100, 100));  // White
     strip.show();
 }
 
 //-------------RIGHT BLINKER
-void blinkerRight() {
+void BlinkerRight() {
     strip.clear();
-    blinkers(1, 2, true);
+    Blinkers(1, 2, true);
     strip.setPixelColor(0, strip.Color(150, 0, 0));  // Red
     strip.setPixelColor(3, strip.Color(100, 100, 100));  // White
     strip.show();
 }
 
 //-------------BRAKE LIGHT
-void brakeLight() {
+void BrakeLight() {
     strip.clear();
     strip.setPixelColor(0, strip.Color(255, 0, 0));  // Red
     strip.setPixelColor(1, strip.Color(255, 0, 0));  // Red
@@ -422,7 +422,7 @@ void brakeLight() {
 }
 
 //-------------DEFAULT LIGHT
-void regularLight() {
+void RegularLight() {
     strip.clear();
     strip.setPixelColor(0, strip.Color(50, 0, 0));  // Red
     strip.setPixelColor(1, strip.Color(50, 0, 0));  // Red
